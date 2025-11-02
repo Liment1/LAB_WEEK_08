@@ -17,6 +17,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.example.lab_week_08.worker.FirstWorker
 import com.example.lab_week_08.worker.SecondWorker
+import com.example.lab_week_08.worker.ThirdWorker
 
 class MainActivity : AppCompatActivity() {
     //Create an instance of a work manager
@@ -70,6 +71,13 @@ class MainActivity : AppCompatActivity() {
                 SecondWorker
                 .INPUT_DATA_ID, id)
             ).build()
+        val ThirdRequest = OneTimeWorkRequest
+            .Builder(ThirdWorker::class.java)
+            .setConstraints(networkConstraints)
+            .setInputData(getIdInputData(
+                ThirdWorker
+                    .INPUT_DATA_ID, id)
+            ).build()
         //Sets up the process sequence from the work manager instance
         //Here it starts with FirstWorker, then SecondWorker
         workManager.beginWith(firstRequest)
@@ -96,7 +104,15 @@ class MainActivity : AppCompatActivity() {
             .observe(this) { info ->
                 if (info?.state?.isFinished ?: false) {
                     showResult("Second process is done")
-                    launchNotificationService()
+                    // PASS the ThirdRequest here
+                    launchNotificationService(ThirdRequest)
+                }
+            }
+        workManager.getWorkInfoByIdLiveData(ThirdRequest.id)
+            .observe(this) { info ->
+                if (info?.state?.isFinished ?: false) {
+                    showResult("Third process is done")
+                    launchSecondNotificationService()
                 }
             }
     }
@@ -129,6 +145,56 @@ class MainActivity : AppCompatActivity() {
         }
 
         //Start the foreground service through the Service Intent
+        ContextCompat.startForegroundService(this, serviceIntent)
+    }
+
+    // In MainActivity.kt
+
+    private fun launchNotificationService(thirdRequest: OneTimeWorkRequest) {
+        // 1. OBSERVE THE SERVICE'S COMPLETION
+        NotificationService.trackingCompletion.observe(this) { Id ->
+            showResult("Process for Notification Channel ID $Id is done!")
+
+            // 2. KICK OFF THE NEXT WORKER *AFTER* THE SERVICE IS DESTROYED
+            workManager.enqueue(thirdRequest)
+
+            // Stop observing the old service once the work is done to prevent memory leaks
+            NotificationService.trackingCompletion.removeObservers(this)
+        }
+
+        // Create an Intent to start the NotificationService
+        val serviceIntent = Intent(
+            this,
+            NotificationService::class.java
+        ).apply {
+            putExtra(NotificationService.EXTRA_ID, "001")
+        }
+
+        // Start the foreground service
+        ContextCompat.startForegroundService(this, serviceIntent)
+    }
+
+    // In MainActivity.kt
+
+    private fun launchSecondNotificationService() {
+        // 1. FIX: Observe the new service's LiveData
+        SecondNotificationService.trackingCompletion.observe(this) { Id ->
+            showResult("Process for Second Notification Channel ID $Id is done!")
+
+            // Stop observing the service once the work is done
+            SecondNotificationService.trackingCompletion.removeObservers(this)
+        }
+
+        // 2. FIX: Start the correct service
+        val serviceIntent = Intent(
+            this,
+            SecondNotificationService::class.java // Changed from NotificationService
+        ).apply {
+            // 3. CORRECT: Use the new service's EXTRA_ID
+            putExtra(SecondNotificationService.EXTRA_ID, "002")
+        }
+
+        // Start the foreground service through the Service Intent
         ContextCompat.startForegroundService(this, serviceIntent)
     }
 
